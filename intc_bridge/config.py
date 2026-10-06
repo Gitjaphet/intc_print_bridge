@@ -12,11 +12,14 @@ DEFAULTS = {
     'port': 8080,
     'token': '',
     'printer': {
-        'mode': 'bluetooth',   # 'bluetooth' ou 'serial'
+        'mode': 'bluetooth',   # bluetooth | serial | network | windows
         'mac': '',
         'channel': 1,
         'port': '',            # ex. COM5 (mode serial)
         'baudrate': 9600,
+        'host': '',            # mode network
+        'net_port': 9100,
+        'printer_name': '',    # mode windows
         'timeout': 10,
     },
 }

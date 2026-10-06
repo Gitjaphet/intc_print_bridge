@@ -5,12 +5,10 @@ import logging
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-from .transports import build_transport
+from .transports import HOST_DOWN, build_transport
 
 log = logging.getLogger('intc_bridge')
 
-# Linux EHOSTDOWN / EHOSTUNREACH, Windows WSAEHOSTDOWN / WSAEHOSTUNREACH
-HOST_DOWN = {112, 113, 10064, 10065}
 
 
 def friendly_error(exc):
