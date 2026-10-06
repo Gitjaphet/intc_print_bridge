@@ -1,7 +1,8 @@
 """Interface de configuration d'INTC Print Bridge."""
 import sys
 
-from PySide6.QtCore import QObject, QRunnable, QThreadPool, Signal
+from PySide6.QtCore import QObject, QRunnable, QThreadPool, QTimer, QUrl, Signal
+from PySide6.QtGui import QDesktopServices
 from PySide6.QtWidgets import (QApplication, QComboBox, QFormLayout, QGroupBox, QHBoxLayout,
                                QLabel, QLineEdit, QPushButton, QSpinBox, QStackedWidget,
                                QVBoxLayout, QWidget)
@@ -18,6 +19,35 @@ REQUIRED = {'bluetooth': ('mac', "Choisissez un appareil Bluetooth."),
             'windows': ('printer_name', "Choisissez une imprimante Windows.")}
 # ESC @ (init), centré, texte, avance papier, coupe
 TEST_TICKET = b'\x1b@\x1ba\x01INTC Print Bridge\nTest d\'impression OK\n\n\n\n\x1dVB\x00'
+
+
+SERVICE = 'INTCPrintBridge'
+SERVICE_LABELS = {None: ("Non disponible sur ce système", None),
+                  'absent': ("Service non installé", False),
+                  'running': ("En marche", True),
+                  'stopped': ("Arrêté", False),
+                  'pending': ("Démarrage ou arrêt en cours…", None)}
+
+
+def service_state():
+    try:
+        import win32service
+        import win32serviceutil
+    except ImportError:
+        return None  # pas sous Windows
+    try:
+        state = win32serviceutil.QueryServiceStatus(SERVICE)[1]
+    except Exception:
+        return 'absent'
+    return {win32service.SERVICE_RUNNING: 'running',
+            win32service.SERVICE_STOPPED: 'stopped'}.get(state, 'pending')
+
+
+def service_action(action):
+    import win32serviceutil
+    {'start': win32serviceutil.StartService,
+     'stop': win32serviceutil.StopService,
+     'restart': win32serviceutil.RestartService}[action](SERVICE)
 
 
 class _Signals(QObject):
@@ -68,10 +98,17 @@ class MainWindow(QWidget):
         col = QVBoxLayout(box)
         for w in (self.mode, self.pages, self.btn_test, self.status):
             col.addWidget(w)
-        QVBoxLayout(self).addWidget(box)
+        root = QVBoxLayout(self)
+        root.addWidget(box)
+        root.addWidget(self._service_box())
 
         self.refresh_lists()
         self._load_form()
+        self.timer = QTimer(self)
+        self.timer.setInterval(3000)
+        self.timer.timeout.connect(self.refresh_service)
+        self.timer.start()
+        self.refresh_service()
 
     # ---------- pages par mode ----------
     def _page_bluetooth(self):
@@ -230,6 +267,77 @@ class MainWindow(QWidget):
         else:
             self.bt_channel.setValue(channel)
             self._set_status(f"Canal {channel} détecté.", True)
+
+    # ---------- service ----------
+    def _service_box(self):
+        box = QGroupBox('Service Windows')
+        form = QFormLayout(box)
+        self.port = QSpinBox()
+        self.port.setRange(1024, 65535)
+        self.port.setValue(int(self.cfg['port']))
+        form.addRow('Port local', self.port)
+        self.token = QLineEdit(self.cfg['token'])
+        self.token.setReadOnly(True)
+        copy = QPushButton('Copier')
+        copy.clicked.connect(lambda: QApplication.clipboard().setText(self.token.text()))
+        row = QHBoxLayout()
+        row.addWidget(self.token, 1)
+        row.addWidget(copy)
+        form.addRow('Jeton (pour Odoo)', row)
+        self.svc_label = QLabel()
+        form.addRow('État', self.svc_label)
+        self.btn_save = QPushButton('Enregistrer et redémarrer')
+        self.btn_save.clicked.connect(self.save_and_restart)
+        self.btn_start = QPushButton('Démarrer')
+        self.btn_start.clicked.connect(lambda: self._service('start'))
+        self.btn_stop = QPushButton('Arrêter')
+        self.btn_stop.clicked.connect(lambda: self._service('stop'))
+        logs = QPushButton('Journaux')
+        logs.clicked.connect(self.open_logs)
+        row2 = QHBoxLayout()
+        for b in (self.btn_save, self.btn_start, self.btn_stop, logs):
+            row2.addWidget(b)
+        form.addRow(row2)
+        return box
+
+    def refresh_service(self):
+        state = service_state()
+        text, ok = SERVICE_LABELS[state]
+        color = {True: '#1a7f37', False: '#c62828'}.get(ok, '')
+        self.svc_label.setStyleSheet(f'color: {color}; font-weight: bold' if color else '')
+        self.svc_label.setText(text)
+        self.btn_start.setEnabled(state == 'stopped')
+        self.btn_stop.setEnabled(state == 'running')
+
+    def save_and_restart(self):
+        p = self.printer_cfg()
+        field, message = REQUIRED[p['mode']]
+        if not p[field]:
+            return self._set_status(message, False)
+        self.cfg['printer'] = p
+        self.cfg['port'] = self.port.value()
+        config.save(self.cfg)
+        if service_state() in (None, 'absent'):
+            return self._set_status("Configuration enregistrée.", True)
+        self._service('restart')
+
+    def _service(self, action):
+        self._set_status({'start': "Démarrage du service…",
+                          'stop': "Arrêt du service…",
+                          'restart': "Configuration enregistrée, redémarrage du service…"}[action])
+        self._run(lambda: service_action(action), self._on_service)
+
+    def _on_service(self, _, error):
+        self.refresh_service()
+        if error:
+            self._set_status(f"Service : {error}", False)
+        else:
+            self._set_status("Service mis à jour.", True)
+
+    def open_logs(self):
+        folder = config.config_dir() / 'logs'
+        folder.mkdir(parents=True, exist_ok=True)
+        QDesktopServices.openUrl(QUrl.fromLocalFile(str(folder)))
 
 
 if __name__ == '__main__':
