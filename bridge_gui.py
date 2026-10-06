@@ -130,6 +130,9 @@ class MainWindow(QWidget):
         row2.addWidget(self.btn_detect)
         row2.addStretch()
         form.addRow('Canal', row2)
+        bt_settings = QPushButton('Ouvrir les paramètres Bluetooth de Windows')
+        bt_settings.clicked.connect(lambda: QDesktopServices.openUrl(QUrl('ms-settings:bluetooth')))
+        form.addRow(bt_settings)
         return page
 
     def _page_serial(self):

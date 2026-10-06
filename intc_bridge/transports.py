@@ -1,5 +1,6 @@
 """Transports : comment les octets ESC/POS arrivent jusqu'à l'imprimante."""
 import socket
+import sys
 import time
 
 # Linux EHOSTDOWN / EHOSTUNREACH, Windows WSAEHOSTDOWN / WSAEHOSTUNREACH
@@ -12,6 +13,24 @@ def _bt_socket():
     return socket.socket(socket.AF_BLUETOOTH, socket.SOCK_STREAM, socket.BTPROTO_RFCOMM)
 
 
+def _connect_bt(mac, channel, timeout):
+    """Ouvre une connexion RFCOMM et renvoie le socket connecté."""
+    s = _bt_socket()
+    try:
+        if sys.platform == 'win32':
+            # Sous Windows, un connect() Bluetooth avec délai (mode non bloquant)
+            # peut se dire réussi sans l'être : on se connecte en mode bloquant.
+            s.connect((mac, channel))
+        else:
+            s.settimeout(timeout)
+            s.connect((mac, channel))
+        s.settimeout(timeout)  # délai pour l'envoi, une fois connecté
+        return s
+    except BaseException:
+        s.close()
+        raise
+
+
 class BluetoothTransport:
     """Connexion RFCOMM directe par adresse MAC (Linux et Windows)."""
 
@@ -21,9 +40,7 @@ class BluetoothTransport:
         self.timeout = timeout
 
     def send(self, data):
-        with _bt_socket() as s:
-            s.settimeout(self.timeout)
-            s.connect((self.mac, self.channel))
+        with _connect_bt(self.mac, self.channel, self.timeout) as s:
             s.sendall(data)
             time.sleep(1)  # laisse partir les derniers octets avant de couper
 
@@ -88,9 +105,7 @@ def detect_bluetooth_channel(mac, channels=None, timeout=4, on_try=None, max_tim
         if on_try:
             on_try(channel)
         try:
-            with _bt_socket() as s:
-                s.settimeout(timeout)
-                s.connect((mac, channel))
+            with _connect_bt(mac, channel, timeout):
                 return channel
         except TimeoutError:
             timeouts += 1

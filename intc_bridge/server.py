@@ -17,6 +17,9 @@ def friendly_error(exc):
         return 504, "Imprimante injoignable (en veille ?) : réveillez-la et réessayez."
     if getattr(exc, 'winerror', None) in HOST_DOWN or getattr(exc, 'errno', None) in HOST_DOWN:
         return 502, "Imprimante éteinte ou hors de portée."
+    if getattr(exc, 'winerror', None) in (10053, 10057, 10058):
+        return 502, ("Imprimante occupée ou connexion interrompue : vérifiez qu'aucun "
+                     "autre appareil (téléphone, autre PC) n'y est connecté, puis réessayez.")
     return 502, f"Erreur d'impression : {exc}"
 
 
