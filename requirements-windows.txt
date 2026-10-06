@@ -1,0 +1,4 @@
+pyside6-essentials
+pyserial
+pywin32
+pyinstaller
